@@ -8,12 +8,14 @@
 #include <readline/readline.h>
 
 #define ASSERT(value)                    \
-  if (!(value))                          \
-  {                                      \
+  if (!(value)) {                        \
     printf("BADLY AT: L%d\n", __LINE__); \
     return 1;                            \
   }
-#define DEBUG 0
+
+#if defined(DEBUG) || 0
+  #define DEBUG 1
+#endif
 
 #if DEBUG
 #define DEBUG_PRINT(fmt, ...) printf(fmt, __VA_ARGS__)
@@ -42,6 +44,10 @@ static int read_file(const char *filename, char *out) {
 }
 
 static size_t trim(const char *str, size_t len, char *out) {
+  if (len == 0) {
+    return 0;
+  }
+
   size_t start = 0;
   for (; start < len; ++start) {
     if (!isspace(str[start])) {
@@ -49,16 +55,21 @@ static size_t trim(const char *str, size_t len, char *out) {
     }
   }
 
-  size_t trimmed_len = 0;
-
-  for (size_t i = 0; i < len; ++i) {
-    if (isspace(str[i + start])) {
-      out[i + start] = '\0';
-      return trimmed_len;
+  size_t end = len - 1;
+  for (; end > start; --end) {
+    char ch = str[end];
+    if (!isspace(ch) && ch != 0) {
+      break;
     }
-    out[i] = str[i + start];
-    trimmed_len += 1;
   }
+
+  if (end == start) {
+    return 0;
+  }
+
+  size_t trimmed_len = end - start + 1;
+  memcpy(out, str + start, trimmed_len);
+  out[trimmed_len] = '\0';
 
   return trimmed_len;
 }
@@ -87,7 +98,7 @@ static int insert_words(sqlite3 *db, const char *filename, const char *language)
       continue;
     }
 
-    DEBUG_PRINT("word: %s\n", word);
+    DEBUG_PRINT("word: %s, len = %zu\n", word, word_len);
     ok = sqlite3_bind_text(word_stmt, 1, language, -1, NULL);
     ASSERT(ok == 0);
     ok = sqlite3_bind_text(word_stmt, 2, word, -1, NULL);
@@ -96,11 +107,6 @@ static int insert_words(sqlite3 *db, const char *filename, const char *language)
     ASSERT(ok == SQLITE_OK || ok == SQLITE_DONE);
     ok = sqlite3_reset(word_stmt);
     ASSERT(ok == 0);
-
-    sqlite3_int64 word_id = sqlite3_last_insert_rowid(db);
-    ASSERT(word_id != 0);
-
-    DEBUG_PRINT("word_id: %lld\n", word_id);
   }
 
   sqlite3_finalize(word_stmt);
@@ -141,10 +147,7 @@ static int create_or_open_db(sqlite3 **db, const char *filename, size_t ngram_le
   ASSERT(ok == SQLITE_OK);
 
   sqlite3_stmt *exists_stmt;
-  ok = sqlite3_prepare_v2(*db, "select 1 from sqlite_schema where type = 'table' and name = ?", -1, &exists_stmt, NULL);
-  ASSERT(ok == SQLITE_OK);
-
-  ok = sqlite3_bind_text(exists_stmt, 1, "word", -1, NULL);
+  ok = sqlite3_prepare_v2(*db, "select 1 from sqlite_schema where type = 'table' and name = 'word'", -1, &exists_stmt, NULL);
   ASSERT(ok == SQLITE_OK);
 
   ok = sqlite3_step(exists_stmt);
@@ -209,8 +212,7 @@ static int search_ngram(sqlite3 *db, const char *term, size_t ngram_len) {
 }
 
 #if DEBUG
-static int search_like(sqlite3 *db, const char *term)
-{
+static int search_like(sqlite3 *db, const char *term) {
   int ok;
 
   sqlite3_stmt *search_stmt;
@@ -219,8 +221,7 @@ static int search_like(sqlite3 *db, const char *term)
   ok = sqlite3_bind_text(search_stmt, 1, term, -1, NULL);
   ASSERT(ok == SQLITE_OK);
 
-  while (sqlite3_step(search_stmt) == SQLITE_ROW)
-  {
+  while (sqlite3_step(search_stmt) == SQLITE_ROW) {
     const unsigned char *word = sqlite3_column_text(search_stmt, 0);
     printf("%s\n", word);
   }
