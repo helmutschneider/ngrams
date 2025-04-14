@@ -1,4 +1,6 @@
-An ngram-index search implemented in SQLite. Slower than a regular 'LIKE' :) Swedish wordlist included.
+An ngram-index search implemented in SQLite. Usually not faster than a regular 'LIKE', but it works.
+
+Swedish wordlist included.
 
 ```shell
 make
@@ -13,7 +15,7 @@ bungalowerna
 bungalowernas
 bungalowers
 bungalows
-Elapsed: 0.5544 sec
+Elapsed: 0.0063 sec
 
 Searching (like)...
 bungalow
@@ -24,5 +26,6 @@ bungalowerna
 bungalowernas
 bungalowers
 bungalows
-Elapsed: 0.0394 sec
+Elapsed: 0.0214 sec
+
 ```
