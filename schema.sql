@@ -2,7 +2,7 @@ create table "word" (
   "word_id" integer primary key,
   "language" text not null,
   "value" text not null
-);
+) strict;
 
 create index ix_word_value
   on "word" ("value");
@@ -15,7 +15,7 @@ create table "ngram" (
   foreign key ("word_id") references "word"("word_id")
     on update cascade
     on delete cascade
-);
+) strict;
 
 create index ix_ngram_word_id
   on "ngram" ("word_id");
