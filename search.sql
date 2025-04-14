@@ -1,38 +1,34 @@
-with recursive make_ngrams as (
-  select lower(?) as remainder,
-         ? as ngram_len,
-         '' as value,
-         -1 as sequence_no
-  union all
-  select substr(s.remainder, 2),
-         s.ngram_len,
-         substr(s.remainder, 1, s.ngram_len),
-         s.sequence_no + 1
-    from make_ngrams s
-   where length(s.remainder) >= s.ngram_len
-), t_matches as (
-  select n.*,
-         m.sequence_no as iter_sequence_no,
-         (select max(sequence_no) from make_ngrams) as last_sequence_no
-    from make_ngrams m
-    join ngram n
-      on m.value = n.value
-     and m.sequence_no = 0
-   union all
-  select n.*,
-         m.sequence_no,
-         t.last_sequence_no
+with recursive term_ngrams as (
+    select '' as value,
+           lower(?) as remainder,
+           ? as ngram_len,
+           -1 as seq_no
+      union all
+    select substr(tn.remainder, 1, tn.ngram_len),
+           substr(tn.remainder, 2),
+           tn.ngram_len,
+           tn.seq_no + 1
+      from term_ngrams tn
+     where length(tn.remainder) >= tn.ngram_len
+), first_ngram as (
+  select n.*
     from ngram n
-    join t_matches t
-      on n.word_id = t.word_id
-     and n.sequence_no = t.sequence_no + 1
-    join make_ngrams m
-      on m.sequence_no = t.iter_sequence_no + 1
-     and m.value = n.value
+    join term_ngrams ts
+      on n.value = ts.value
+     and ts.seq_no = 0
+), matches as (
+    select n.word_id
+  from ngram n
+  join first_ngram tf
+    on n.word_id = tf.word_id
+  join term_ngrams ts
+    on n.seq_no = (tf.seq_no + ts.seq_no)
+   and n.value = ts.value
+ group by n.word_id
+having count(1) = ((select max(seq_no) from term_ngrams) + 1)
 )
 select w.value
-  from t_matches
-  join word w
-    on w.word_id = t_matches.word_id
- where t_matches.iter_sequence_no = t_matches.last_sequence_no
- order by w.value
+  from word w
+  join matches m
+    on m.word_id = w.word_id
+order by w.value
