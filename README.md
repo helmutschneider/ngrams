@@ -1,31 +1,10 @@
-An ngram-index search implemented in SQLite. Usually not faster than a regular 'LIKE', but it works.
+An ngram-index search implemented in SQLite. Usually not faster than a regular 'LIKE', but it works. The search algorithm is a recursive CTE that matches ngrams from the search term with the indexed word. See [search.sql](search.sqlg) for details.
 
-Swedish wordlist included.
+Swedish & English wordlists are included.
+
+## Usage
 
 ```shell
 make
-./app bunga
-
-Searching (ngram)...
-bungalow
-bungalowen
-bungalowens
-bungalower
-bungalowerna
-bungalowernas
-bungalowers
-bungalows
-Elapsed: 0.0063 sec
-
-Searching (like)...
-bungalow
-bungalowen
-bungalowens
-bungalower
-bungalowerna
-bungalowernas
-bungalowers
-bungalows
-Elapsed: 0.0214 sec
-
+./app
 ```
