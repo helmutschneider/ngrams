@@ -17,8 +17,8 @@ create table "ngram" (
     on delete cascade
 ) strict;
 
-create index ix_ngram_word_id
-  on "ngram" ("word_id");
+create index ix_ngram_value
+  on "ngram" ("value");
 
-create index ix_ngram_value_seq_no
-  on "ngram" ("value", "seq_no");
+create index ix_ngram_word_id_seq_no
+  on "ngram" ("word_id", "seq_no");
