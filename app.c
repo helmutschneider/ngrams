@@ -7,11 +7,14 @@
 #include <time.h>
 #include <readline/readline.h>
 
-#define ASSERT(value)                    \
+#define ASSERT_MSG(value, ...)           \
   if (!(value)) {                        \
     printf("BADLY AT: L%d\n", __LINE__); \
+    printf(__VA_ARGS__);                 \
     return 1;                            \
   }
+
+#define ASSERT(value) ASSERT_MSG(value, "")
 
 #if defined(DEBUG) || 0
   #define DEBUG 1
@@ -39,6 +42,8 @@ static int read_file(const char *filename, char *out) {
 
   out[offset] = '\0';
   fclose(handle);
+
+  DEBUG_PRINT("%s\n", out);
 
   return 0;
 }
@@ -120,11 +125,10 @@ static int insert_ngrams(sqlite3 *db, const char *filename, size_t ngram_len) {
   int ok;
   ok = read_file(filename, buffer);
   ASSERT(ok == 0);
-  DEBUG_PRINT("%s\n", buffer);
 
   sqlite3_stmt *stmt;
   ok = sqlite3_prepare_v2(db, buffer, -1, &stmt, NULL);
-  ASSERT(ok == SQLITE_OK);
+  ASSERT_MSG(ok == SQLITE_OK, "%s\n", sqlite3_errmsg(db));
 
   ok = sqlite3_bind_int(stmt, 1, ngram_len);
   ASSERT(ok == SQLITE_OK);
@@ -137,11 +141,34 @@ static int insert_ngrams(sqlite3 *db, const char *filename, size_t ngram_len) {
   return 0;
 }
 
+static uint64_t ngram_hash(const char *ngram) {
+  uint64_t hash = 0;
+  size_t len = strnlen(ngram, 16);
+
+  for (size_t i = 0; i < len; ++i) {
+    uint8_t ch = ngram[i];
+    size_t shl = (len - i - 1) * 8;
+    hash |= (ch << shl);
+  }
+
+  return hash;
+}
+
+static void sqlite3_ngram_hash(sqlite3_context *ctx, int argc, sqlite3_value **args) {
+  const unsigned char *ngram = sqlite3_value_text(args[0]);
+  sqlite3_int64 hash = ngram_hash((const char *)ngram);
+
+  sqlite3_result_int64(ctx, hash);
+}
+
 static int create_or_open_db(sqlite3 **db, const char *filename, size_t ngram_len) {
   int ok;
 
   ok = sqlite3_open_v2(filename, db, SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE, NULL);
   ASSERT(ok == SQLITE_OK);
+
+  ok = sqlite3_create_function_v2(*db, "ngram_hash", 1, SQLITE_UTF8 | SQLITE_DETERMINISTIC | SQLITE_DIRECTONLY, NULL, sqlite3_ngram_hash, NULL, NULL, NULL);
+  ASSERT_MSG(ok == SQLITE_OK, "%s\n", sqlite3_errmsg(*db));
 
   ok = sqlite3_exec(*db, "PRAGMA foreign_keys = ON;", NULL, NULL, NULL);
   ASSERT(ok == SQLITE_OK);
@@ -156,20 +183,21 @@ static int create_or_open_db(sqlite3 **db, const char *filename, size_t ngram_le
 
   if (!exists) {
     printf("Building search index...\n");
+    ok = sqlite3_exec(*db, "begin transaction", NULL, NULL, NULL);
+    ASSERT(ok == SQLITE_OK);
 
     char buffer[8192];
     ok = read_file("schema.sql", buffer);
     ASSERT(ok == 0);
     ok = sqlite3_exec(*db, buffer, NULL, NULL, NULL);
-    ASSERT(ok == SQLITE_OK);
-    ok = sqlite3_exec(*db, "begin transaction", NULL, NULL, NULL);
-    ASSERT(ok == SQLITE_OK);
+    ASSERT_MSG(ok == SQLITE_OK, "%s\n", sqlite3_errmsg(*db));
     ok = insert_words(*db, "sv.txt", "sv-SE");
     ASSERT(ok == 0);
     ok = insert_words(*db, "en.txt", "en-US");
     ASSERT(ok == 0);
     ok = insert_ngrams(*db, "ngrams.sql", ngram_len);
     ASSERT(ok == 0);
+
     ok = sqlite3_exec(*db, "commit", NULL, NULL, NULL);
     ASSERT(ok == SQLITE_OK);
   }
@@ -187,7 +215,7 @@ static double elapsed_sec(struct timespec since) {
   return tend - ts;
 }
 
-static int search_ngram(sqlite3 *db, const char *term, size_t ngram_len) {
+static int search_ngram(sqlite3 *db, const char *term, size_t ngram_len, bool do_print) {
   int ok;
   char buffer[8192];
   ok = read_file("search.sql", buffer);
@@ -203,7 +231,9 @@ static int search_ngram(sqlite3 *db, const char *term, size_t ngram_len) {
 
   while (sqlite3_step(search_stmt) == SQLITE_ROW) {
     const unsigned char *word = sqlite3_column_text(search_stmt, 0);
-    printf("%s\n", word);
+    if (do_print) {
+      printf("%s\n", word);
+    }
   }
 
   sqlite3_finalize(search_stmt);
@@ -211,8 +241,7 @@ static int search_ngram(sqlite3 *db, const char *term, size_t ngram_len) {
   return 0;
 }
 
-#if DEBUG
-static int search_like(sqlite3 *db, const char *term) {
+static int search_like(sqlite3 *db, const char *term, bool do_print) {
   int ok;
 
   sqlite3_stmt *search_stmt;
@@ -223,13 +252,33 @@ static int search_like(sqlite3 *db, const char *term) {
 
   while (sqlite3_step(search_stmt) == SQLITE_ROW) {
     const unsigned char *word = sqlite3_column_text(search_stmt, 0);
-    printf("%s\n", word);
+    if (do_print) {
+      printf("%s\n", word);
+    }
   }
   sqlite3_finalize(search_stmt);
 
   return 0;
 }
-#endif
+
+static void benchmark(sqlite3 *db, const char *term, size_t ngram_len) {
+  const size_t BENCHMARK_ITERS = 1000;
+  struct timespec ts;
+  
+  printf("Term = '%s', Iters = %zu, Method = search_ngram\n", term, BENCHMARK_ITERS);
+  clock_gettime(CLOCK_REALTIME, &ts);
+  for (size_t i = 0; i < BENCHMARK_ITERS; ++i) {
+    search_ngram(db, term, ngram_len, false);
+  }
+  printf("Elapsed: %.4f sec\n", elapsed_sec(ts));
+
+  printf("Term = '%s', Iters = %zu, Method = search_like\n", term, BENCHMARK_ITERS);
+  clock_gettime(CLOCK_REALTIME, &ts);
+  for (size_t i = 0; i < BENCHMARK_ITERS; ++i) {
+    search_like(db, term, false);
+  }
+  printf("Elapsed: %.4f sec\n", elapsed_sec(ts));
+}
 
 static const int NGRAM_LEN = 3;
 
@@ -239,6 +288,11 @@ int main(int argc, const char **argv) {
   ok = create_or_open_db(&db, "words.db", NGRAM_LEN);
   ASSERT(ok == 0);
 
+  if (argc == 3 && strncmp(argv[1], "b", 1) == 0) {
+    benchmark(db, argv[2], NGRAM_LEN);
+    return 1;
+  }
+
   while (true) {
     const char *term = readline("Search: ");
     if (term == NULL || strnlen(term, 512) == 0) {
@@ -247,19 +301,8 @@ int main(int argc, const char **argv) {
 
     struct timespec ts;
 
-    printf("Searching for '%s' using ngrams-%d...\n", term, NGRAM_LEN);
     clock_gettime(CLOCK_REALTIME, &ts);
-    search_ngram(db, term, NGRAM_LEN);
-    printf("\n");
-    printf("Elapsed: %.4f sec\n", elapsed_sec(ts));
-    printf("\n");
-
-#if DEBUG
-    printf("Searching for '%s' using LIKE...\n", term);
-    clock_gettime(CLOCK_REALTIME, &ts);
-    search_like(db, term);
-    printf("Elapsed: %.4f sec\n", elapsed_sec(ts));
-#endif
+    search_ngram(db, term, NGRAM_LEN, true);
   }
 
   sqlite3_close_v2(db);

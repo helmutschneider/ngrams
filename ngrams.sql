@@ -14,7 +14,7 @@ with recursive make_ngrams as (
     from make_ngrams s
    where length(s.remainder) >= s.ngram_len
 )
-insert into "ngram" ("word_id", "value", "seq_no")
-select m.word_id, m.value, m.seq_no
+insert into "ngram" ("word_id", "seq_no", "hash")
+select m.word_id, m.seq_no, ngram_hash(m.value)
   from make_ngrams m
  where m.value != '' -- the base case is empty.
