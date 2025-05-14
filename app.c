@@ -3,81 +3,7 @@
 #include <sqlite3.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
-#include <time.h>
-#include <readline/readline.h>
-
-#define ASSERT_MSG(value, ...)           \
-  if (!(value)) {                        \
-    printf("BADLY AT: L%d\n", __LINE__); \
-    printf(__VA_ARGS__);                 \
-    return 1;                            \
-  }
-
-#define ASSERT(value) ASSERT_MSG(value, "")
-
-#if defined(DEBUG) || 0
-  #define DEBUG 1
-#endif
-
-#if DEBUG
-#define DEBUG_PRINT(fmt, ...) printf(fmt, __VA_ARGS__)
-#else
-#define DEBUG_PRINT(fmt, ...)
-#endif
-
-static int read_file(const char *filename, char *out) {
-  FILE *handle = fopen(filename, "rb");
-  ASSERT(handle != NULL);
-
-  size_t offset = 0;
-
-  while (true) {
-    size_t read = fread(out + offset, sizeof(char), 8192, handle);
-    if (read == 0) {
-      break;
-    }
-    offset += read;
-  }
-
-  out[offset] = '\0';
-  fclose(handle);
-
-  DEBUG_PRINT("%s\n", out);
-
-  return 0;
-}
-
-static size_t trim(const char *str, size_t len, char *out) {
-  if (len == 0) {
-    return 0;
-  }
-
-  size_t start = 0;
-  for (; start < len; ++start) {
-    if (!isspace(str[start])) {
-      break;
-    }
-  }
-
-  size_t end = len - 1;
-  for (; end > start; --end) {
-    char ch = str[end];
-    if (!isspace(ch) && ch != 0) {
-      break;
-    }
-  }
-
-  if (end == start) {
-    return 0;
-  }
-
-  size_t trimmed_len = end - start + 1;
-  memcpy(out, str + start, trimmed_len);
-  out[trimmed_len] = '\0';
-
-  return trimmed_len;
-}
+#include "ngrams.h"
 
 static int insert_words(sqlite3 *db, const char *filename, const char *language) {
   FILE *handle = fopen(filename, "rb");
@@ -98,7 +24,7 @@ static int insert_words(sqlite3 *db, const char *filename, const char *language)
     }
 
     char word[512];
-    size_t word_len = trim(line, line_len, word);
+    size_t word_len = trim(line, word);
     if (word_len == 0) {
       continue;
     }
@@ -205,16 +131,6 @@ static int create_or_open_db(sqlite3 **db, const char *filename, size_t ngram_le
   return 0;
 }
 
-static double elapsed_sec(struct timespec since) {
-  struct timespec now;
-  clock_gettime(CLOCK_REALTIME, &now);
-
-  double ts = ((double)since.tv_sec) + ((double)since.tv_nsec) / 1e9;
-  double tend = ((double)now.tv_sec) + ((double)now.tv_nsec) / 1e9;
-
-  return tend - ts;
-}
-
 static int search_ngram(sqlite3 *db, const char *term, size_t ngram_len, bool do_print) {
   int ok;
   char buffer[8192];
@@ -294,14 +210,13 @@ int main(int argc, const char **argv) {
   }
 
   while (true) {
-    const char *term = readline("Search: ");
+    printf("Search: ");
+    char buffer[512];
+    char *term = gets(buffer);
     if (term == NULL || strnlen(term, 512) == 0) {
       break;
     }
 
-    struct timespec ts;
-
-    clock_gettime(CLOCK_REALTIME, &ts);
     search_ngram(db, term, NGRAM_LEN, true);
   }
 

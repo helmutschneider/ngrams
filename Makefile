@@ -1,12 +1,16 @@
 CC=gcc
 CFLAGS=-O2 -Wall -Werror -Wpedantic -march=native
-LDFLAGS=-lsqlite3 -lreadline
+LDFLAGS=-lsqlite3
 
 all: clean
-	$(CC) $(CFLAGS) $(LDFLAGS) app.c -o app
+	$(CC) $(CFLAGS) app.c -o app $(LDFLAGS)
 
 debug: clean
-	$(CC) $(CFLAGS) $(LDFLAGS) -DDEBUG app.c -o app
+	$(CC) $(CFLAGS) -DDEBUG app.c -o app $(LDFLAGS)
 
 clean:
-	rm -rf app
+	rm -rf app tests
+
+tests: clean
+	$(CC) tests.c -o tests $(LDFLAGS) && ./tests
+
